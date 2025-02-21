@@ -23,3 +23,9 @@ pub struct CreateProductResponse{
 }
 impl Response for CreateProductResponse{}
 
+#[derive(Deserialize, Serialize)]
+pub struct ApiError{
+    pub error: String
+}
+impl Response for ApiError{}
+

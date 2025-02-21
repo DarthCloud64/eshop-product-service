@@ -9,11 +9,11 @@ pub trait Command{}
 pub trait Query{}
 
 pub trait CommandHandler<C: Command, R: Response>{
-    async fn handle(&self, input: &C) -> R;
+    async fn handle(&self, input: &C) -> Result<R, String>;
 }
 
 pub trait QueryHandler<Q: Query, R: Response>{
-    async fn handle(&self, input: &Q) -> R;
+    async fn handle(&self, input: &Q) -> Result<R, String>;
 }
 
 // commands
@@ -44,7 +44,7 @@ impl<T: ProductRepository> CreateProductCommandHandler<T>{
 }
 
 impl<T: ProductRepository> CommandHandler<CreateProductCommand, CreateProductResponse> for CreateProductCommandHandler<T>{
-    async fn handle(&self, input: &CreateProductCommand) -> CreateProductResponse {
+    async fn handle(&self, input: &CreateProductCommand) -> Result<CreateProductResponse, String> {
         let domain_product = Product{
             id: uuid::Uuid::new_v4().to_string(),
             name: input.name.clone(),
@@ -54,12 +54,12 @@ impl<T: ProductRepository> CommandHandler<CreateProductCommand, CreateProductRes
         };
 
         match self.uow.add_product(domain_product.id.clone(), domain_product).await{
-            Ok(created_product) => CreateProductResponse {
+            Ok(created_product) => Ok(CreateProductResponse {
                 id: created_product.id.clone()
-            },
+            }),
             Err(e) => {
                 println!("Error occurred while adding product: {}", e);
-                panic!()
+                Err(e)
             }
         }
     }
@@ -80,7 +80,7 @@ impl<T: ProductRepository> GetProductsQueryHandler<T>{
 }
 
 impl<T: ProductRepository> QueryHandler<GetProductsQuery, GetProductsResponse> for GetProductsQueryHandler<T>{
-    async fn handle(&self, input: &GetProductsQuery) -> GetProductsResponse {    
+    async fn handle(&self, input: &GetProductsQuery) -> Result<GetProductsResponse, String> {    
         match self.uow.product_repository.read(input.id.as_str()).await{
             Ok(domain_product) => {
                 let mut products = Vec::new();
@@ -93,12 +93,13 @@ impl<T: ProductRepository> QueryHandler<GetProductsQuery, GetProductsResponse> f
                     number_of_reviews: domain_product.number_of_reviews
                 });
 
-                GetProductsResponse{
+                Ok(GetProductsResponse{
                     products: products
-                }
+                })
             },
             Err(e) => {
-                panic!()
+                println!("Error occurred while adding product: {}", e);
+                Err(e)
             }
         }
     }
