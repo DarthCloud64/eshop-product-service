@@ -69,7 +69,7 @@ impl MessageBroker for RabbitMqMessageBroker{
     async fn publish_message(&self, event: &Event, destination_name: &str) -> Result<(), String> {
         match self.connection.open_channel(None).await{
             Ok(channel) => match channel.register_callback(DefaultChannelCallback).await {
-                Ok(_) => match channel.queue_declare(QueueDeclareArguments::default()).await{
+                Ok(_) => match channel.queue_declare(QueueDeclareArguments::new(destination_name)).await{
                     Ok(queue_option) => match queue_option {
                         Some(q) => match channel.queue_bind(QueueBindArguments::new(&q.0, destination_name, "")).await {
                             Ok(_) => {

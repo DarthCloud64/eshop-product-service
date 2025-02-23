@@ -54,9 +54,17 @@ impl<T1: ProductRepository, T2: MessageBroker> CommandHandler<CreateProductComma
         };
 
         match self.uow.add_product(domain_product.id.clone(), domain_product).await{
-            Ok(created_product) => Ok(CreateProductResponse {
-                id: created_product.id.clone()
-            }),
+            Ok(created_product) => {
+                match self.uow.commit().await {
+                    Ok(()) => Ok(CreateProductResponse {
+                        id: created_product.id.clone()
+                    }),
+                    Err(e) => {
+                        println!("Error occurred while adding product: {}", e);
+                        Err(e)
+                    }
+                }
+            },
             Err(e) => {
                 println!("Error occurred while adding product: {}", e);
                 Err(e)

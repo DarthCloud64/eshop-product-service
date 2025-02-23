@@ -1,0 +1,17 @@
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    pull_policy: missing
+    ports:
+      - 5672:5672
+      - 15672:15672
+    hostname: rabbitmq
+    networks:
+      - eshop-net
+    volumes:
+      - ./data/mnesia:/var/lib/rabbitmq/mnesia
+      - ./data/config:/etc/rabbitmq/rabbitmq
+      - ./data/logs:/var/log/rabbitmq
+
+networks:
+  eshop-net:
