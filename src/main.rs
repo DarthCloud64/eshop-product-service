@@ -6,10 +6,12 @@ mod domain;
 mod uow;
 mod cqrs;
 mod state;
+mod events;
 
 use std::sync::Arc;
 use axum::{handler::Handler, routing::{get, post}, Router};
 use cqrs::{CreateProductCommandHandler, GetProductsQueryHandler};
+use events::{RabbitMqInitializationInfo, RabbitMqMessageBroker};
 use repositories::InMemoryProductRepository;
 use routes::*;
 use state::AppState;
@@ -20,7 +22,8 @@ use uow::RepositoryContext;
 #[tokio::main]
 async fn main() {
     let product_repository= Arc::new(InMemoryProductRepository::new());
-    let uow = Arc::new(RepositoryContext::new(product_repository.clone()));
+    let message_broker = Arc::new(RabbitMqMessageBroker::new(RabbitMqInitializationInfo::new(String::from("localhost"), 5672, String::from("guest"), String::from("guest"))).await.unwrap());
+    let uow = Arc::new(RepositoryContext::new(product_repository.clone(), message_broker.clone()));
     let create_product_command_handler = Arc::new(CreateProductCommandHandler::new(uow.clone()));
     let get_products_query_handler = Arc::new(GetProductsQueryHandler::new(uow.clone()));
 

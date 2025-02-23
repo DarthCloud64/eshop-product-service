@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{domain::Product, dtos::{CreateProductResponse, GetProductsResponse, ProductResponse, Response}, repositories::{InMemoryProductRepository, ProductRepository}, uow::{self, RepositoryContext}};
+use crate::{domain::Product, dtos::{CreateProductResponse, GetProductsResponse, ProductResponse, Response}, events::MessageBroker, repositories::{InMemoryProductRepository, ProductRepository}, uow::{self, RepositoryContext}};
 
 // traits
 pub trait Command{}
@@ -31,19 +31,19 @@ impl Query for GetProductsQuery{}
 
 // command handlers
 #[derive(Clone)]
-pub struct CreateProductCommandHandler<T: ProductRepository>{
-    uow: Arc<RepositoryContext<T>>
+pub struct CreateProductCommandHandler<T1: ProductRepository, T2: MessageBroker>{
+    uow: Arc<RepositoryContext<T1, T2>>
 }
 
-impl<T: ProductRepository> CreateProductCommandHandler<T>{
-    pub fn new(uow: Arc<RepositoryContext<T>>) -> Self{
+impl<T1: ProductRepository, T2: MessageBroker> CreateProductCommandHandler<T1, T2>{
+    pub fn new(uow: Arc<RepositoryContext<T1, T2>>) -> Self{
         CreateProductCommandHandler{
             uow: uow
         }
     }
 }
 
-impl<T: ProductRepository> CommandHandler<CreateProductCommand, CreateProductResponse> for CreateProductCommandHandler<T>{
+impl<T1: ProductRepository, T2: MessageBroker> CommandHandler<CreateProductCommand, CreateProductResponse> for CreateProductCommandHandler<T1, T2>{
     async fn handle(&self, input: &CreateProductCommand) -> Result<CreateProductResponse, String> {
         let domain_product = Product{
             id: uuid::Uuid::new_v4().to_string(),
@@ -67,19 +67,19 @@ impl<T: ProductRepository> CommandHandler<CreateProductCommand, CreateProductRes
 
 // query handlers
 #[derive(Clone)]
-pub struct GetProductsQueryHandler<T: ProductRepository>{
-    uow: Arc<RepositoryContext<T>>
+pub struct GetProductsQueryHandler<T1: ProductRepository, T2: MessageBroker>{
+    uow: Arc<RepositoryContext<T1, T2>>
 }
 
-impl<T: ProductRepository> GetProductsQueryHandler<T>{
-    pub fn new(uow: Arc<RepositoryContext<T>>) -> Self {
+impl<T1: ProductRepository, T2: MessageBroker> GetProductsQueryHandler<T1, T2>{
+    pub fn new(uow: Arc<RepositoryContext<T1, T2>>) -> Self {
         GetProductsQueryHandler{
             uow: uow
         }
     }
 }
 
-impl<T: ProductRepository> QueryHandler<GetProductsQuery, GetProductsResponse> for GetProductsQueryHandler<T>{
+impl<T1: ProductRepository, T2: MessageBroker> QueryHandler<GetProductsQuery, GetProductsResponse> for GetProductsQueryHandler<T1, T2>{
     async fn handle(&self, input: &GetProductsQuery) -> Result<GetProductsResponse, String> {    
         match self.uow.product_repository.read(input.id.as_str()).await{
             Ok(domain_product) => {
