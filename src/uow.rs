@@ -37,10 +37,30 @@ impl<T1: ProductRepository, T2: MessageBroker> RepositoryContext<T1, T2> {
         let mut lock = self.new_products.lock().await;
         lock.clear();
 
-        let lock = self.events_to_publish.lock().await;
+        let mut lock = self.events_to_publish.lock().await;
+        let mut event_results = Vec::new();
         for e in lock.iter(){
-            self.message_broker.publish_message(e, "product.created").await;
+            println!("publishing event");
+            event_results.push(self.message_broker.publish_message(e, "product.created").await);
         }
+
+        let mut single_event_failed = false;
+        for result in event_results{
+            let _ = match result {
+                Ok(()) => (),
+                Err(e) => {
+                    single_event_failed = true;
+                    println!("event error found! {}", e);
+                }
+            };
+        }
+
+        lock.clear();
+        
+        if single_event_failed {
+            return Err(String::from("Failed to commit changes."))
+        }
+
         Ok(())
     }
 
