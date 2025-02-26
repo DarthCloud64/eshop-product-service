@@ -12,6 +12,15 @@ services:
       - ./data/mnesia:/var/lib/rabbitmq/mnesia
       - ./data/config:/etc/rabbitmq/rabbitmq
       - ./data/logs:/var/log/rabbitmq
+  mongodb:
+    image: mongodb/mongodb-community-server
+    pull_policy: missing
+    ports:
+      - 27017:27017
+    hostname: mongodb
+    networks:
+      - eshop-net
+
 
 networks:
   eshop-net:

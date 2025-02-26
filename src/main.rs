@@ -11,8 +11,9 @@ mod events;
 use std::sync::Arc;
 use axum::{handler::Handler, routing::{get, post}, Router};
 use cqrs::{CreateProductCommandHandler, GetProductsQueryHandler};
+use domain::Product;
 use events::{RabbitMqInitializationInfo, RabbitMqMessageBroker};
-use repositories::InMemoryProductRepository;
+use repositories::{InMemoryProductRepository, MongoDbInitializationInfo, MongoDbProductRepository};
 use routes::*;
 use state::AppState;
 use tower::ServiceBuilder;
@@ -21,7 +22,15 @@ use uow::RepositoryContext;
 
 #[tokio::main]
 async fn main() {
-    let product_repository= Arc::new(InMemoryProductRepository::new());
+    let info = MongoDbInitializationInfo{
+        uri: String::from("mongodb://localhost:27017"),
+        database: String::from("eshop-product"),
+        collection: String::from("products")
+    };
+
+    // let product_repository= Arc::new(InMemoryProductRepository::new());
+    let product_repository = Arc::new(MongoDbProductRepository::new(&info).await);
+
     let message_broker = Arc::new(RabbitMqMessageBroker::new(RabbitMqInitializationInfo::new(String::from("localhost"), 5672, String::from("guest"), String::from("guest"))).await.unwrap());
     let uow = Arc::new(RepositoryContext::new(product_repository.clone(), message_broker.clone()));
     let create_product_command_handler = Arc::new(CreateProductCommandHandler::new(uow.clone()));
