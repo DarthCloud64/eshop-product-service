@@ -50,11 +50,12 @@ async fn main() {
     axum::serve(listener, Router::new()
         .route("/", get(index))
         .route("/products/{id}", get(get_products))
-        .route("/products", post(create_product))
+        .route("/products", post(create_product).get(get_all_products))
         .with_state(state)
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
                 .layer(CorsLayer::new())
+                .layer(CorsLayer::permissive())
         )).await.unwrap();
 }

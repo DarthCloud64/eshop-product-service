@@ -13,13 +13,15 @@ pub trait CommandHandler<C: Command, R: Response>{
 }
 
 pub trait QueryHandler<Q: Query, R: Response>{
-    async fn handle(&self, input: &Q) -> Result<R, String>;
+    async fn handle(&self, input: Option<Q>) -> Result<R, String>;
 }
 
 // commands
 #[derive(Serialize, Deserialize)]
 pub struct CreateProductCommand{
     pub name: String,
+    pub price: f32,
+    pub description: String,
 }
 impl Command for CreateProductCommand{}
 
@@ -45,9 +47,23 @@ impl<T1: ProductRepository, T2: MessageBroker> CreateProductCommandHandler<T1, T
 
 impl<T1: ProductRepository, T2: MessageBroker> CommandHandler<CreateProductCommand, CreateProductResponse> for CreateProductCommandHandler<T1, T2>{
     async fn handle(&self, input: &CreateProductCommand) -> Result<CreateProductResponse, String> {
+        if input.price <= 0.0 {
+            return Err(String::from("Price cannot be 0 or negative!!!"));
+        }
+
+        if input.name.is_empty() {
+            return Err(String::from("Name cannot be empty!!!"));
+        }
+
+        if input.description.is_empty() {
+            return Err(String::from("Description cannot be empty!!!"));
+        }
+
         let domain_product = Product{
             id: uuid::Uuid::new_v4().to_string(),
             name: input.name.clone(),
+            description: input.description.clone(),
+            price: input.price,
             inventory: 0,
             stars: 0,
             number_of_reviews: 0
@@ -88,26 +104,59 @@ impl<T1: ProductRepository, T2: MessageBroker> GetProductsQueryHandler<T1, T2>{
 }
 
 impl<T1: ProductRepository, T2: MessageBroker> QueryHandler<GetProductsQuery, GetProductsResponse> for GetProductsQueryHandler<T1, T2>{
-    async fn handle(&self, input: &GetProductsQuery) -> Result<GetProductsResponse, String> {    
-        match self.uow.product_repository.read(input.id.as_str()).await{
-            Ok(domain_product) => {
-                let mut products = Vec::new();
-
-                products.push(ProductResponse{
-                    id: domain_product.id.clone(),
-                    name: domain_product.name.clone(),
-                    inventory: domain_product.inventory,
-                    stars: domain_product.stars,
-                    number_of_reviews: domain_product.number_of_reviews
-                });
-
-                Ok(GetProductsResponse{
-                    products: products
-                })
+    async fn handle(&self, input_option: Option<GetProductsQuery>) -> Result<GetProductsResponse, String> {    
+        match input_option {
+            Some(input) => {
+                match self.uow.product_repository.read(input.id.as_str()).await{
+                    Ok(domain_product) => {
+                        let mut products = Vec::new();
+        
+                        products.push(ProductResponse{
+                            id: domain_product.id.clone(),
+                            name: domain_product.name.clone(),
+                            price: domain_product.price,
+                            description: domain_product.description.clone(),
+                            inventory: domain_product.inventory,
+                            stars: domain_product.stars,
+                            number_of_reviews: domain_product.number_of_reviews
+                        });
+        
+                        Ok(GetProductsResponse{
+                            products: products
+                        })
+                    },
+                    Err(e) => {
+                        println!("Error occurred while adding product: {}", e);
+                        Err(e)
+                    }
+                }
             },
-            Err(e) => {
-                println!("Error occurred while adding product: {}", e);
-                Err(e)
+            None => {
+                match self.uow.product_repository.read_all().await{
+                    Ok(domain_products) => {
+                        let mut products = Vec::new();
+
+                        for domain_product in domain_products {
+                            products.push(ProductResponse{
+                                id: domain_product.id.clone(),
+                                name: domain_product.name.clone(),
+                                price: domain_product.price,
+                                description: domain_product.description.clone(),
+                                inventory: domain_product.inventory,
+                                stars: domain_product.stars,
+                                number_of_reviews: domain_product.number_of_reviews
+                            });
+                        }
+                        
+                        Ok(GetProductsResponse{
+                            products: products
+                        })
+                    },
+                    Err(e) => {
+                        println!("Error occurred while adding product: {}", e);
+                        Err(e)
+                    }
+                }
             }
         }
     }

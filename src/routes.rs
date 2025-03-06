@@ -13,7 +13,14 @@ pub async fn get_products(Path(id): Path<String>, State(state): State<Arc<AppSta
         id: id.to_string()
     };
 
-    match state.get_products_query_handler.handle(&input).await {
+    match state.get_products_query_handler.handle(Some(input)).await {
+        Ok(response)=> (StatusCode::OK, Json(json!(response))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!(ApiError{error: e})))
+    }
+}
+
+pub async fn get_all_products(State(state): State<Arc<AppState>>) -> (StatusCode, Json<Value>) {
+    match state.get_products_query_handler.handle(None).await {
         Ok(response)=> (StatusCode::OK, Json(json!(response))),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!(ApiError{error: e})))
     }

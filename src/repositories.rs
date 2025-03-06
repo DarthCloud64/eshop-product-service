@@ -1,8 +1,8 @@
-use mongodb::{bson::{doc, Document}, Client, Collection};
+use mongodb::{bson::doc, Client, Collection};
 use tokio::sync::Mutex;
-
 use crate::domain::Product;
 use std::{collections::HashMap, sync::Arc};
+use futures_util::TryStreamExt;
 
 #[derive(Debug)]
 pub struct MongoDbInitializationInfo {
@@ -14,6 +14,7 @@ pub struct MongoDbInitializationInfo {
 pub trait ProductRepository {
     async fn create(&self, id: String, product: Product) -> Result<Product, String>;
     async fn read<'a>(&self, id: &'a str) -> Result<Product, String>;
+    async fn read_all(&self) -> Result<Vec<Product>, String>;
     async fn update(&self, id: String, product: Product) -> Result<Product, String>;
     async fn delete(&self, id: &str);
     async fn save_changes(&self);
@@ -56,6 +57,17 @@ impl ProductRepository for InMemoryProductRepository {
                 Err(format!("Product with id {} did not exist", id))
             }
         }
+    }
+
+    async fn read_all(&self) -> Result<Vec<Product>, String>{
+        let mut products_to_return = Vec::new();
+        let lock = self.products.lock().await;
+
+        for (_, value) in lock.iter() {
+            products_to_return.push(value.clone());
+        }
+
+        Ok(products_to_return)
     }
 
     async fn update(&self, id: String, product: Product) -> Result<Product, String> {
@@ -130,6 +142,21 @@ impl ProductRepository for MongoDbProductRepository{
             Err(e) => {
                 Err(format!("Failed to insert product: {}", e))
             }
+        }
+    }
+
+    async fn read_all(&self) -> Result<Vec<Product>, String> {
+        let mut products_to_return = Vec::new();
+
+        match self.product_collection.find(doc! {}).await{
+            Ok(mut found_products) => {
+                while let Ok(Some(product)) = found_products.try_next().await {
+                    products_to_return.push(product.clone())
+                }
+
+                Ok(products_to_return)
+            },
+            Err(_) => Err(format!("Failed to find products"))
         }
     }
 
