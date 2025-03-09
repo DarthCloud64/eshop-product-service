@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
 
-use crate::{domain::Product, dtos::{CreateProductResponse, GetProductsResponse, ProductResponse, Response}, events::MessageBroker, repositories::{InMemoryProductRepository, ProductRepository}, uow::{self, RepositoryContext}};
+use crate::{domain::Product, dtos::{CreateProductResponse, EmptyResponse, GetProductsResponse, ProductResponse, Response}, events::MessageBroker, repositories::{InMemoryProductRepository, ProductRepository}, uow::{self, RepositoryContext}};
 
 // traits
 pub trait Command{}
@@ -24,6 +24,13 @@ pub struct CreateProductCommand{
     pub description: String,
 }
 impl Command for CreateProductCommand{}
+
+#[derive(Serialize, Deserialize)]
+pub struct ModifyProductInventoryCommand{
+    pub product_id: String,
+    pub new_inventory: u32
+}
+impl Command for ModifyProductInventoryCommand{}
 
 // queries
 pub struct GetProductsQuery{
@@ -157,6 +164,40 @@ impl<T1: ProductRepository, T2: MessageBroker> QueryHandler<GetProductsQuery, Ge
                         Err(e)
                     }
                 }
+            }
+        }
+    }
+}
+
+pub struct ModifyProductInventoryCommandHandler<T1: ProductRepository, T2: MessageBroker>{
+    uow: Arc<RepositoryContext<T1, T2>>
+}
+
+impl <T1: ProductRepository, T2: MessageBroker> ModifyProductInventoryCommandHandler<T1, T2>{
+    pub fn new(uow: Arc<RepositoryContext<T1, T2>>) -> Self {
+        ModifyProductInventoryCommandHandler {
+            uow: uow
+        }
+    }
+}
+
+impl <T1: ProductRepository, T2: MessageBroker> CommandHandler<ModifyProductInventoryCommand, EmptyResponse> for ModifyProductInventoryCommandHandler<T1, T2>{
+    async fn handle(&self, input: &ModifyProductInventoryCommand) -> Result<EmptyResponse, String> {
+        match self.uow.product_repository.read(&input.product_id).await {
+            Ok(mut found_product) => {
+                found_product.inventory = input.new_inventory;
+
+                match self.uow.product_repository.update(input.product_id.clone(), found_product).await{
+                    Ok(_) => {
+                        Ok(EmptyResponse{})
+                    },
+                    Err(e) => {
+                        Err(format!("Error occurred while modifying product inventory for product {}: {}", &input.product_id, e))
+                    }
+                }
+            },
+            Err(e) => {
+                Err(format!("Error occurred while modifying product inventory for product {}: {}", &input.product_id, e))
             }
         }
     }

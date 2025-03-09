@@ -2,7 +2,7 @@ use std::sync::{Arc, Mutex};
 use axum::{extract::{Json, Path, State}, http::StatusCode};
 use serde_json::{Value, json};
 
-use crate::{cqrs::{CommandHandler, CreateProductCommand, CreateProductCommandHandler, GetProductsQuery, GetProductsQueryHandler, QueryHandler}, dtos::{ApiError, CreateProductResponse, GetProductsResponse}, repositories::ProductRepository, state::AppState};
+use crate::{cqrs::{CommandHandler, CreateProductCommand, CreateProductCommandHandler, GetProductsQuery, GetProductsQueryHandler, ModifyProductInventoryCommand, QueryHandler}, dtos::{ApiError, CreateProductResponse, GetProductsResponse}, repositories::ProductRepository, state::AppState};
 
 pub async fn index() -> &'static str {
     "Hello, World!"
@@ -30,5 +30,12 @@ pub async fn create_product(state: State<Arc<AppState>>, Json(create_product_com
     match state.create_product_command_handler.handle(&create_product_command).await {
         Ok(response) => (StatusCode::CREATED, Json(json!(response))),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!(ApiError{error: e})))
-    }   
+    }
+}
+
+pub async fn modify_product_inventory(state: State<Arc<AppState>>, Json(modify_product_inventory_command): Json<ModifyProductInventoryCommand>) -> (StatusCode, Json<Value>) {
+    match state.modify_product_inventory_command_handler.handle(&modify_product_inventory_command).await {
+        Ok(response) => (StatusCode::NO_CONTENT, Json(json!(response))),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!(ApiError{error: e})))
+    }
 }

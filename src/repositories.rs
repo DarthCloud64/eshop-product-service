@@ -161,7 +161,24 @@ impl ProductRepository for MongoDbProductRepository{
     }
 
     async fn update(&self, id: String, product: Product) -> Result<Product, String> {
-        todo!()
+        match self.product_collection.replace_one(doc! {"id": &id}, product).await {
+            Ok(_) => {
+                match self.product_collection.find_one(doc! {"id": &id}).await {
+                    Ok(find_one_product_option) => {
+                        match find_one_product_option {
+                            Some(p) => Ok(p),
+                            None => Err(format!("Failed to find Product with id {}", id))
+                        }
+                    },
+                    Err(e) => {
+                        Err(format!("Failed to update Product: {}", e))
+                    }
+                }
+            },
+            Err(e) => {
+                Err(format!("Failed to update Product: {}", e))
+            }
+        }
     }
 
     async fn delete(&self, id: &str) {

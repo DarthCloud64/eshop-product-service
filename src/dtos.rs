@@ -31,3 +31,6 @@ pub struct ApiError{
 }
 impl Response for ApiError{}
 
+#[derive(Deserialize, Serialize)]
+pub struct EmptyResponse{}
+impl Response for EmptyResponse{}

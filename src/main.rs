@@ -9,8 +9,8 @@ mod state;
 mod events;
 
 use std::sync::Arc;
-use axum::{handler::Handler, routing::{get, post}, Router};
-use cqrs::{CreateProductCommandHandler, GetProductsQueryHandler};
+use axum::{handler::Handler, http::Method, routing::{get, post, put}, Router};
+use cqrs::{CreateProductCommandHandler, GetProductsQueryHandler, ModifyProductInventoryCommandHandler};
 use domain::Product;
 use events::{RabbitMqInitializationInfo, RabbitMqMessageBroker};
 use repositories::{InMemoryProductRepository, MongoDbInitializationInfo, MongoDbProductRepository};
@@ -35,12 +35,12 @@ async fn main() {
     let uow = Arc::new(RepositoryContext::new(product_repository.clone(), message_broker.clone()));
     let create_product_command_handler = Arc::new(CreateProductCommandHandler::new(uow.clone()));
     let get_products_query_handler = Arc::new(GetProductsQueryHandler::new(uow.clone()));
+    let modify_product_inventory_command_handler = Arc::new(ModifyProductInventoryCommandHandler::new(uow.clone()));
 
     let state = Arc::new(AppState{
-        product_repository: product_repository,
-        uow: uow,
         create_product_command_handler: create_product_command_handler,
         get_products_query_handler: get_products_query_handler,
+        modify_product_inventory_command_handler: modify_product_inventory_command_handler,
     });
     
     tracing_subscriber::fmt().with_max_level(tracing::Level::DEBUG).init();
@@ -51,11 +51,11 @@ async fn main() {
         .route("/", get(index))
         .route("/products/{id}", get(get_products))
         .route("/products", post(create_product).get(get_all_products))
+        .route("/products/modifyProductInventory", put(modify_product_inventory))
         .with_state(state)
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
-                .layer(CorsLayer::new())
-                .layer(CorsLayer::permissive())
+                .layer(CorsLayer::very_permissive().allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE]))
         )).await.unwrap();
 }
