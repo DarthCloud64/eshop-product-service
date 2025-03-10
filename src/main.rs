@@ -12,7 +12,7 @@ use std::sync::Arc;
 use axum::{handler::Handler, http::Method, routing::{get, post, put}, Router};
 use cqrs::{CreateProductCommandHandler, GetProductsQueryHandler, ModifyProductInventoryCommandHandler};
 use domain::Product;
-use events::{RabbitMqInitializationInfo, RabbitMqMessageBroker};
+use events::{MessageBroker, RabbitMqInitializationInfo, RabbitMqMessageBroker};
 use repositories::{InMemoryProductRepository, MongoDbInitializationInfo, MongoDbProductRepository};
 use routes::*;
 use state::AppState;
@@ -46,6 +46,10 @@ async fn main() {
     tracing_subscriber::fmt().with_max_level(tracing::Level::DEBUG).init();
 
     let listener = tokio::net::TcpListener::bind("0.0.0.0:9090").await.unwrap();
+
+    tokio::spawn(async move {
+        message_broker.consume("product.added.to.cart").await;
+    });
 
     axum::serve(listener, Router::new()
         .route("/", get(index))

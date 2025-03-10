@@ -1,5 +1,7 @@
-use amqprs::{callbacks::{DefaultChannelCallback, DefaultConnectionCallback}, channel::{self, BasicPublishArguments, Channel, ExchangeBindArguments, ExchangeDeclareArguments, ExchangeType, QueueBindArguments, QueueDeclareArguments}, connection::{Connection, OpenConnectionArguments}, BasicProperties, DELIVERY_MODE_PERSISTENT};
+use amqprs::{callbacks::{DefaultChannelCallback, DefaultConnectionCallback}, channel::{self, BasicConsumeArguments, BasicPublishArguments, Channel, ExchangeBindArguments, ExchangeDeclareArguments, ExchangeType, QueueBindArguments, QueueDeclareArguments}, connection::{Connection, OpenConnectionArguments}, consumer::{AsyncConsumer, DefaultConsumer}, BasicProperties, Deliver, DELIVERY_MODE_PERSISTENT};
+use async_trait::async_trait;
 use serde::Serialize;
+use tokio::sync::Notify;
 
 pub struct RabbitMqInitializationInfo{
     uri: String,
@@ -33,6 +35,7 @@ pub enum Event{
 
 pub trait MessageBroker{
     async fn publish_message(&self, event: &Event, destination_name: &str) -> Result<(), String>;
+    async fn consume(&self, destination_name: &str);
 }
 
 
@@ -101,6 +104,46 @@ impl MessageBroker for RabbitMqMessageBroker{
                 Err(format!("Failed to publish event to broker: {}", e))   
             }
         }
-        
+    }
+
+    async fn consume(&self, destination_name: &str) {
+        match self.get_channel(destination_name).await {
+            Ok(channel) => {
+                let consume_arguments = BasicConsumeArguments::new(destination_name, "eshop-prodct-service")
+                    .manual_ack(false)
+                    .finish();
+
+                let x = channel.basic_consume(ProductAddedToCartEventHandler::new(), consume_arguments).await.unwrap();
+                println!("{}", x);
+
+                let guard = Notify::new();
+                guard.notified().await;
+            },
+            Err(e) => {
+                panic!();
+            }
+        }
+    }
+}
+
+pub struct ProductAddedToCartEventHandler {}
+
+impl ProductAddedToCartEventHandler {
+    pub fn new() -> Self{
+        ProductAddedToCartEventHandler{}
+    }
+}
+
+#[async_trait]
+impl AsyncConsumer for ProductAddedToCartEventHandler {
+    async fn consume(
+        &mut self,
+        channel: &Channel,
+        deliver: Deliver,
+        basic_properties: BasicProperties,
+        content: Vec<u8>,
+    ){
+        let x = String::from_utf8(content).unwrap();
+        println!("{}", x);
     }
 }
