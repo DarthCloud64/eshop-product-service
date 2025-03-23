@@ -65,8 +65,6 @@ async fn main() {
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
-                .layer(CorsLayer::very_permissive()
-                    .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
-                    .allow_origin(AllowOrigin::any()))
+                .layer(CorsLayer::permissive())
         )).await.unwrap();
 }
