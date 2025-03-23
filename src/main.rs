@@ -18,7 +18,7 @@ use repositories::{InMemoryProductRepository, MongoDbInitializationInfo, MongoDb
 use routes::*;
 use state::AppState;
 use tower::ServiceBuilder;
-use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tower_http::{cors::{AllowOrigin, CorsLayer}, trace::TraceLayer};
 use uow::RepositoryContext;
 use dotenv::dotenv;
 use std::env;
@@ -65,6 +65,8 @@ async fn main() {
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
-                .layer(CorsLayer::very_permissive().allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE]))
+                .layer(CorsLayer::very_permissive()
+                    .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+                    .allow_origin(AllowOrigin::any()))
         )).await.unwrap();
 }
