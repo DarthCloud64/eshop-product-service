@@ -5,16 +5,19 @@ use jsonwebtoken::{decode, decode_header, Validation};
 use jwks::Jwks;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 use crate::state::AppState;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Claims {
     pub sub: String,
-    pub aud: String,
+    pub aud: Value,
     pub iss: String,
     pub exp: usize,
     pub iat: usize,
+    pub azp: String,
+    pub scope: String
 }
 
 pub async fn authentication_middleware(State(state): State<Arc<AppState>>, request: Request, next: Next) -> Result<Response, StatusCode>{
@@ -55,13 +58,36 @@ pub async fn authentication_middleware(State(state): State<Arc<AppState>>, reque
                                             // Decode the token body
                                             match decode::<Claims>(token, &jwk.decoding_key, &validation){
                                                 Ok(token_data) => {
-                                                    println!("Valid token!");
+                                                    match token_data.claims.aud {
+                                                        Value::String(single_aud) => {
+                                                            if state.auth0_audience != single_aud{
+                                                                println!("Invalid audience: {}!", single_aud);
+                                                                return Err(StatusCode::UNAUTHORIZED);
+                                                            }
+                                                        },
+                                                        Value::Array(multiple_aud) => {
+                                                            let mut aud_found = false;
 
-                                                    if state.auth0_audience != token_data.claims.aud{
-                                                        println!("Invalid audience: {}!", token_data.claims.aud);
-                                                        return Err(StatusCode::UNAUTHORIZED);
+                                                            for entry in multiple_aud{
+                                                                match entry {
+                                                                    Value::String(s) => {
+                                                                        if state.auth0_audience == s{
+                                                                            aud_found = true;
+                                                                        }
+                                                                    },
+                                                                    _ => return Err(StatusCode::UNAUTHORIZED)
+                                                                }
+                                                            }
+
+                                                            if !aud_found{
+                                                                println!("Invalid audience!");
+                                                                return Err(StatusCode::UNAUTHORIZED);
+                                                            }
+                                                        },
+                                                        _ => return Err(StatusCode::UNAUTHORIZED)
                                                     }
 
+                                                    println!("Auth middleware successful!");
                                                     return Ok(next.run(request).await)
                                                 },
                                                 Err(e) => {
