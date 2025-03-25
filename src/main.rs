@@ -10,7 +10,7 @@ mod events;
 mod auth;
 
 use std::sync::Arc;
-use axum::{handler::Handler, http::Method, routing::{get, post, put}, Router};
+use axum::{handler::Handler, http::Method, middleware::from_fn_with_state, routing::{get, post, put}, Router};
 use cqrs::{CreateProductCommandHandler, GetProductsQueryHandler, ModifyProductInventoryCommandHandler};
 use domain::Product;
 use events::{MessageBroker, RabbitMqInitializationInfo, RabbitMqMessageBroker};
@@ -46,6 +46,8 @@ async fn main() {
         create_product_command_handler: create_product_command_handler,
         get_products_query_handler: get_products_query_handler,
         modify_product_inventory_command_handler: modify_product_inventory_command_handler,
+        auth0_domain: String::from(env::var("AUTH0_DOMAIN").unwrap()),
+        auth0_audience: String::from(env::var("AUTH0_AUDIENCE").unwrap()),
     });
     
     tracing_subscriber::fmt().with_max_level(tracing::Level::DEBUG).init();
@@ -59,8 +61,11 @@ async fn main() {
     axum::serve(listener, Router::new()
         .route("/", get(index))
         .route("/products/{id}", get(get_products))
+        .route_layer(from_fn_with_state(state.clone(), auth::authentication_middleware))
         .route("/products", post(create_product).get(get_all_products))
+        .route_layer(from_fn_with_state(state.clone(), auth::authentication_middleware))
         .route("/products/modifyProductInventory", put(modify_product_inventory))
+        .route_layer(from_fn_with_state(state.clone(), auth::authentication_middleware))
         .with_state(state)
         .layer(
             ServiceBuilder::new()
