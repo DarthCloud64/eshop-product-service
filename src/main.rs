@@ -60,12 +60,20 @@ async fn main() {
 
     axum::serve(listener, Router::new()
         .route("/", get(index))
-        .route("/products/{id}", get(get_products))
-        .route_layer(from_fn_with_state(state.clone(), auth::authentication_middleware))
-        .route("/products", post(create_product).get(get_all_products))
-        .route_layer(from_fn_with_state(state.clone(), auth::authentication_middleware))
-        .route("/products/modifyProductInventory", put(modify_product_inventory))
-        .route_layer(from_fn_with_state(state.clone(), auth::authentication_middleware))
+
+        .route("/products/{id}", 
+            get(get_products)
+            .route_layer(from_fn_with_state(state.clone(), auth::authentication_middleware)))
+
+        .route("/products", 
+            post(create_product)
+            .get(get_all_products)
+            .route_layer(from_fn_with_state(state.clone(), auth::authentication_middleware)))
+
+        .route("/products/modifyProductInventory", 
+            put(modify_product_inventory)
+            .route_layer(from_fn_with_state(state.clone(), auth::authentication_middleware)))
+            
         .with_state(state)
         .layer(
             ServiceBuilder::new()
