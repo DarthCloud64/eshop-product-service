@@ -1,5 +1,6 @@
 use mongodb::{bson::doc, Client, Collection};
 use tokio::sync::Mutex;
+use tracing::{event, Level};
 use crate::domain::Product;
 use std::{collections::HashMap, sync::Arc};
 use futures_util::TryStreamExt;
@@ -89,7 +90,7 @@ impl ProductRepository for InMemoryProductRepository {
     }
     
     async fn save_changes(&self) {
-        println!("InMemoryProductRepository does not require saving");
+        event!(Level::INFO, "InMemoryProductRepository does not require saving");
     }
 }
 

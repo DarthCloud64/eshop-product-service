@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use tokio::sync::Mutex;
+use tracing::{event, Level};
 
 use crate::{domain::Product, events::{Event, MessageBroker}, repositories::ProductRepository};
 
@@ -33,14 +34,14 @@ impl<T1: ProductRepository, T2: MessageBroker> RepositoryContext<T1, T2> {
     }
 
     pub async fn commit(&self) -> Result<(), String> {
-        println!("Committing changes");
+        event!(Level::TRACE, "Committing changes");
         let mut lock = self.new_products.lock().await;
         lock.clear();
 
         let mut lock = self.events_to_publish.lock().await;
         let mut event_results = Vec::new();
         for e in lock.iter(){
-            println!("publishing event");
+            event!(Level::TRACE, "publishing event");
             event_results.push(self.message_broker.publish_message(e, "product.created").await);
         }
 
@@ -50,7 +51,7 @@ impl<T1: ProductRepository, T2: MessageBroker> RepositoryContext<T1, T2> {
                 Ok(()) => (),
                 Err(e) => {
                     single_event_failed = true;
-                    println!("event error found! {}", e);
+                    event!(Level::WARN, "event error found! {}", e);
                 }
             };
         }
@@ -65,7 +66,7 @@ impl<T1: ProductRepository, T2: MessageBroker> RepositoryContext<T1, T2> {
     }
 
     pub async fn rollback(&self) -> Result<(), String> {
-        println!("Rolling back changes");
+        event!(Level::WARN, "Rolling back changes");
         let mut lock = self.new_products.lock().await;
         lock.clear();
         Ok(())

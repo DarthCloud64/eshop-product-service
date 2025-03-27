@@ -10,15 +10,14 @@ mod events;
 mod auth;
 
 use std::sync::Arc;
-use axum::{handler::Handler, http::Method, middleware::from_fn_with_state, routing::{get, post, put}, Router};
+use axum::{middleware::from_fn_with_state, routing::{get, post, put}, Router};
 use cqrs::{CreateProductCommandHandler, GetProductsQueryHandler, ModifyProductInventoryCommandHandler};
-use domain::Product;
 use events::{MessageBroker, RabbitMqInitializationInfo, RabbitMqMessageBroker};
-use repositories::{InMemoryProductRepository, MongoDbInitializationInfo, MongoDbProductRepository};
+use repositories::{MongoDbInitializationInfo, MongoDbProductRepository};
 use routes::*;
 use state::AppState;
 use tower::ServiceBuilder;
-use tower_http::{cors::{AllowOrigin, CorsLayer}, trace::TraceLayer};
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use uow::RepositoryContext;
 use dotenv::dotenv;
 use std::env;

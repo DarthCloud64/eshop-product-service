@@ -1,8 +1,8 @@
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use axum::{extract::{Json, Path, State}, http::StatusCode};
 use serde_json::{Value, json};
 
-use crate::{cqrs::{CommandHandler, CreateProductCommand, CreateProductCommandHandler, GetProductsQuery, GetProductsQueryHandler, ModifyProductInventoryCommand, QueryHandler}, dtos::{ApiError, CreateProductResponse, GetProductsResponse}, repositories::ProductRepository, state::AppState};
+use crate::{cqrs::{CommandHandler, CreateProductCommand, GetProductsQuery, ModifyProductInventoryCommand, QueryHandler}, dtos::ApiError, state::AppState};
 
 pub async fn index() -> &'static str {
     "Hello, World!"

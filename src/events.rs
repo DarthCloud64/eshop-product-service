@@ -2,6 +2,7 @@ use amqprs::{callbacks::{DefaultChannelCallback, DefaultConnectionCallback}, cha
 use async_trait::async_trait;
 use serde::Serialize;
 use tokio::sync::Notify;
+use tracing::{event, Level};
 
 pub struct RabbitMqInitializationInfo{
     uri: String,
@@ -91,7 +92,7 @@ impl MessageBroker for RabbitMqMessageBroker{
                 delivery_properties.with_delivery_mode(DELIVERY_MODE_PERSISTENT);
                 match serde_json::to_string(&event){
                     Ok(x) => {
-                        println!("publishing!!! {}", x);
+                        event!(Level::DEBUG, "publishing!!! {}", x);
                         match channel.basic_publish(delivery_properties, x.into_bytes(), BasicPublishArguments::new(destination_name, "")).await {
                             Ok(_) => Ok(()),
                             Err(e) => Err(format!("Failed to publish event to broker: {}", e))
@@ -114,7 +115,7 @@ impl MessageBroker for RabbitMqMessageBroker{
                     .finish();
 
                 let x = channel.basic_consume(ProductAddedToCartEventHandler::new(), consume_arguments).await.unwrap();
-                println!("{}", x);
+                event!(Level::DEBUG, "Received event: {}", x);
 
                 let guard = Notify::new();
                 guard.notified().await;
@@ -144,6 +145,6 @@ impl AsyncConsumer for ProductAddedToCartEventHandler {
         content: Vec<u8>,
     ){
         let x = String::from_utf8(content).unwrap();
-        println!("{}", x);
+        event!(Level::DEBUG, "Received event: {}", x);
     }
 }

@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::{cqrs::{CreateProductCommandHandler, GetProductsQueryHandler, ModifyProductInventoryCommandHandler}, events::RabbitMqMessageBroker, repositories::{InMemoryProductRepository, MongoDbProductRepository}, uow::RepositoryContext};
+use crate::{cqrs::{CreateProductCommandHandler, GetProductsQueryHandler, ModifyProductInventoryCommandHandler}, events::RabbitMqMessageBroker, repositories::MongoDbProductRepository};
 
 #[derive(Clone)]
 pub struct AppState {

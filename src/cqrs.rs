@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use tracing::{event, Level};
 
-use crate::{domain::Product, dtos::{CreateProductResponse, EmptyResponse, GetProductsResponse, ProductResponse, Response}, events::MessageBroker, repositories::{InMemoryProductRepository, ProductRepository}, uow::{self, RepositoryContext}};
+use crate::{domain::Product, dtos::{CreateProductResponse, EmptyResponse, GetProductsResponse, ProductResponse, Response}, events::MessageBroker, repositories::ProductRepository, uow::RepositoryContext};
 
 // traits
 pub trait Command{}
@@ -83,13 +84,13 @@ impl<T1: ProductRepository, T2: MessageBroker> CommandHandler<CreateProductComma
                         id: created_product.id.clone()
                     }),
                     Err(e) => {
-                        println!("Error occurred while adding product: {}", e);
+                        event!(Level::WARN, "Error occurred while adding product: {}", e);
                         Err(e)
                     }
                 }
             },
             Err(e) => {
-                println!("Error occurred while adding product: {}", e);
+                event!(Level::WARN, "Error occurred while adding product: {}", e);
                 Err(e)
             }
         }
@@ -133,7 +134,7 @@ impl<T1: ProductRepository, T2: MessageBroker> QueryHandler<GetProductsQuery, Ge
                         })
                     },
                     Err(e) => {
-                        println!("Error occurred while adding product: {}", e);
+                        event!(Level::WARN, "Error occurred while adding product: {}", e);
                         Err(e)
                     }
                 }
@@ -160,7 +161,7 @@ impl<T1: ProductRepository, T2: MessageBroker> QueryHandler<GetProductsQuery, Ge
                         })
                     },
                     Err(e) => {
-                        println!("Error occurred while adding product: {}", e);
+                        event!(Level::WARN, "Error occurred while adding product: {}", e);
                         Err(e)
                     }
                 }
