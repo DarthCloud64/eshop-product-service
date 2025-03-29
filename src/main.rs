@@ -8,15 +8,19 @@ mod cqrs;
 mod state;
 mod events;
 mod auth;
+mod metrics;
 
 use std::sync::Arc;
 use axum::{middleware::from_fn_with_state, routing::{get, post, put}, Router};
+use axum_prometheus::PrometheusMetricLayer;
 use cqrs::{CreateProductCommandHandler, GetProductsQueryHandler, ModifyProductInventoryCommandHandler};
 use events::{MessageBroker, RabbitMqInitializationInfo, RabbitMqMessageBroker};
+use metrics::PrometheusMetricsService;
 use repositories::{MongoDbInitializationInfo, MongoDbProductRepository};
 use routes::*;
 use state::AppState;
-use tower::ServiceBuilder;
+use tokio::sync::Mutex;
+use tower::{Layer, ServiceBuilder};
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use uow::RepositoryContext;
 use dotenv::dotenv;
@@ -47,9 +51,12 @@ async fn main() {
         modify_product_inventory_command_handler: modify_product_inventory_command_handler,
         auth0_domain: String::from(env::var("AUTH0_DOMAIN").unwrap()),
         auth0_audience: String::from(env::var("AUTH0_AUDIENCE").unwrap()),
+        metrics_service: Arc::new(Mutex::new(PrometheusMetricsService::new())),
     });
     
     tracing_subscriber::fmt().with_max_level(tracing::Level::DEBUG).init();
+
+    let (prometheus_layer, metrics_handle) = PrometheusMetricLayer::pair();
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", env::var("AXUM_PORT").unwrap())).await.unwrap();
 
@@ -59,6 +66,8 @@ async fn main() {
 
     axum::serve(listener, Router::new()
         .route("/", get(index))
+
+        .route("/metrics", get(|| async move {metrics_handle.render()}))
 
         .route("/products/{id}", 
             get(get_products)
@@ -74,6 +83,7 @@ async fn main() {
             .route_layer(from_fn_with_state(state.clone(), auth::authentication_middleware)))
             
         .with_state(state)
+        .layer(prometheus_layer)
         .layer(
             ServiceBuilder::new()
                 .layer(TraceLayer::new_for_http())
