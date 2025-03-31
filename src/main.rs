@@ -15,12 +15,10 @@ use axum::{middleware::from_fn_with_state, routing::{get, post, put}, Router};
 use axum_prometheus::PrometheusMetricLayer;
 use cqrs::{CreateProductCommandHandler, GetProductsQueryHandler, ModifyProductInventoryCommandHandler};
 use events::{MessageBroker, RabbitMqInitializationInfo, RabbitMqMessageBroker};
-use metrics::PrometheusMetricsService;
 use repositories::{MongoDbInitializationInfo, MongoDbProductRepository};
 use routes::*;
 use state::AppState;
-use tokio::sync::Mutex;
-use tower::{Layer, ServiceBuilder};
+use tower::ServiceBuilder;
 use tower_http::{cors::CorsLayer, trace::TraceLayer};
 use uow::RepositoryContext;
 use dotenv::dotenv;
@@ -51,10 +49,19 @@ async fn main() {
         modify_product_inventory_command_handler: modify_product_inventory_command_handler,
         auth0_domain: String::from(env::var("AUTH0_DOMAIN").unwrap()),
         auth0_audience: String::from(env::var("AUTH0_AUDIENCE").unwrap()),
-        metrics_service: Arc::new(Mutex::new(PrometheusMetricsService::new())),
     });
     
-    tracing_subscriber::fmt().with_max_level(tracing::Level::DEBUG).init();
+    tracing_subscriber::
+        fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .with_target(false)
+        .with_ansi(false)
+        .json()
+        .with_file(true)
+        .with_line_number(true)
+        .with_current_span(true)
+        .with_writer(std::fs::File::create("/app/logs/eshop-product-service.log").unwrap())
+        .init();
 
     let (prometheus_layer, metrics_handle) = PrometheusMetricLayer::pair();
 
