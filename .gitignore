@@ -18,3 +18,4 @@ target/
 data/
 
 .env
+*.log

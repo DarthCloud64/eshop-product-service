@@ -60,7 +60,7 @@ async fn main() {
         .with_file(true)
         .with_line_number(true)
         .with_current_span(true)
-        .with_writer(std::fs::File::create("/app/logs/eshop-product-service.log").unwrap())
+        .with_writer(std::fs::File::create(String::from(env::var("LOG_PATH").unwrap())).unwrap())
         .init();
 
     let (prometheus_layer, metrics_handle) = PrometheusMetricLayer::pair();
