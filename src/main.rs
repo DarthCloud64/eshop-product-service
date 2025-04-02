@@ -13,7 +13,7 @@ mod metrics;
 use std::sync::Arc;
 use axum::{middleware::from_fn_with_state, routing::{get, post, put}, Router};
 use axum_prometheus::PrometheusMetricLayer;
-use cqrs::{CreateProductCommandHandler, GetProductsQueryHandler, ModifyProductInventoryCommandHandler};
+use cqrs::{CreateProductCommandHandler, DecrementProductInventoryCommandHandler, GetProductsQueryHandler, ModifyProductInventoryCommandHandler};
 use events::{MessageBroker, RabbitMqInitializationInfo, RabbitMqMessageBroker};
 use repositories::{MongoDbInitializationInfo, MongoDbProductRepository};
 use routes::*;
@@ -42,11 +42,13 @@ async fn main() {
     let create_product_command_handler = Arc::new(CreateProductCommandHandler::new(uow.clone()));
     let get_products_query_handler = Arc::new(GetProductsQueryHandler::new(uow.clone()));
     let modify_product_inventory_command_handler = Arc::new(ModifyProductInventoryCommandHandler::new(uow.clone()));
+    let decrement_product_inventory_command_handler = Arc::new(DecrementProductInventoryCommandHandler::new(uow.clone()));
 
     let state = Arc::new(AppState{
         create_product_command_handler: create_product_command_handler,
         get_products_query_handler: get_products_query_handler,
         modify_product_inventory_command_handler: modify_product_inventory_command_handler,
+        decrement_product_inventory_command_handler: decrement_product_inventory_command_handler,
         auth0_domain: String::from(env::var("AUTH0_DOMAIN").unwrap()),
         auth0_audience: String::from(env::var("AUTH0_AUDIENCE").unwrap()),
     });
@@ -67,8 +69,10 @@ async fn main() {
 
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", env::var("AXUM_PORT").unwrap())).await.unwrap();
 
+    let state_clone_for_background_jobs = state.clone();
+
     tokio::spawn(async move {
-        message_broker.consume("product.added.to.cart").await;
+        message_broker.consume(events::PRODUCT_ADDED_TO_CART_QUEUE_NAME, state_clone_for_background_jobs).await;
     });
 
     axum::serve(listener, Router::new()

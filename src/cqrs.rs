@@ -33,6 +33,12 @@ pub struct ModifyProductInventoryCommand{
 }
 impl Command for ModifyProductInventoryCommand{}
 
+#[derive(Serialize, Deserialize)]
+pub struct DecrementProductInventoryCommand{
+    pub product_id: String,
+}
+impl Command for DecrementProductInventoryCommand{}
+
 // queries
 pub struct GetProductsQuery{
     pub id: String
@@ -199,6 +205,42 @@ impl <T1: ProductRepository, T2: MessageBroker> CommandHandler<ModifyProductInve
             },
             Err(e) => {
                 Err(format!("Error occurred while modifying product inventory for product {}: {}", &input.product_id, e))
+            }
+        }
+    }
+}
+
+pub struct DecrementProductInventoryCommandHandler<T1: ProductRepository, T2: MessageBroker>{
+    uow: Arc<RepositoryContext<T1, T2>>
+}
+
+impl <T1: ProductRepository, T2: MessageBroker> DecrementProductInventoryCommandHandler<T1, T2>{
+    pub fn new(uow: Arc<RepositoryContext<T1, T2>>) -> Self {
+        DecrementProductInventoryCommandHandler { 
+            uow: uow
+        }
+    }
+}
+
+impl <T1: ProductRepository, T2: MessageBroker> CommandHandler<DecrementProductInventoryCommand, EmptyResponse> for DecrementProductInventoryCommandHandler<T1, T2>{
+    async fn handle(&self, input: &DecrementProductInventoryCommand) -> Result<EmptyResponse, String> {
+        match self.uow.product_repository.read(&input.product_id.as_str()).await{
+            Ok(mut domain_product) => {
+                domain_product.inventory = domain_product.inventory - 1;
+
+                match self.uow.product_repository.update(domain_product.id.clone(), domain_product).await{
+                    Ok(_) => {
+                        Ok(EmptyResponse{})
+                    },
+                    Err(e) => {
+                        event!(Level::WARN, "Error occurred while updating product while decrementing inventory for product {}: {}", input.product_id, e);
+                        Err(e)
+                    }
+                }
+            },
+            Err(e) => {
+                event!(Level::WARN, "Error occurred while decrementing product inventory for product {}: {}", input.product_id, e);
+                Err(e)
             }
         }
     }

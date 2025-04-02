@@ -1,8 +1,15 @@
+use std::sync::Arc;
+
 use amqprs::{callbacks::{DefaultChannelCallback, DefaultConnectionCallback}, channel::{self, BasicConsumeArguments, BasicPublishArguments, Channel, ExchangeBindArguments, ExchangeDeclareArguments, ExchangeType, QueueBindArguments, QueueDeclareArguments}, connection::{Connection, OpenConnectionArguments}, consumer::{AsyncConsumer, DefaultConsumer}, BasicProperties, Deliver, DELIVERY_MODE_PERSISTENT};
 use async_trait::async_trait;
-use serde::Serialize;
-use tokio::sync::Notify;
+use axum::extract::State;
+use serde::{Deserialize, Serialize};
+use tokio::sync::{Mutex, Notify};
 use tracing::{event, Level};
+
+use crate::{cqrs::{CommandHandler, DecrementProductInventoryCommand, GetProductsQuery, QueryHandler}, dtos::GetProductsResponse, state::AppState};
+
+pub static PRODUCT_ADDED_TO_CART_QUEUE_NAME: &str = "product.added.to.cart";
 
 pub struct RabbitMqInitializationInfo{
     uri: String,
@@ -27,16 +34,19 @@ impl RabbitMqInitializationInfo {
 }
 
 // events
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 pub enum Event{
     ProductCreatedEvent{
         id: String
+    },
+    ProductAddedToCartEvent {
+        product_id: String
     }
 }
 
 pub trait MessageBroker{
     async fn publish_message(&self, event: &Event, destination_name: &str) -> Result<(), String>;
-    async fn consume(&self, destination_name: &str);
+    async fn consume(&self, source_queue_name: &'static str, state: Arc<AppState>);
 }
 
 
@@ -107,15 +117,19 @@ impl MessageBroker for RabbitMqMessageBroker{
         }
     }
 
-    async fn consume(&self, destination_name: &str) {
-        match self.get_channel(destination_name).await {
+    async fn consume(&self, source_queue_name: &'static str, state: Arc<AppState>) {
+        match self.get_channel(source_queue_name).await {
             Ok(channel) => {
-                let consume_arguments = BasicConsumeArguments::new(destination_name, "eshop-prodct-service")
+                let consume_arguments = BasicConsumeArguments::new(source_queue_name, "eshop-prodct-service")
                     .manual_ack(false)
                     .finish();
 
-                let x = channel.basic_consume(ProductAddedToCartEventHandler::new(), consume_arguments).await.unwrap();
-                event!(Level::DEBUG, "Received event: {}", x);
+                match source_queue_name {
+                    queue_name if queue_name == PRODUCT_ADDED_TO_CART_QUEUE_NAME => {
+                        channel.basic_consume(ProductAddedToCartEventHandler::new(Mutex::new(state)), consume_arguments).await.unwrap();
+                    },
+                    x => event!(Level::INFO, "event {} is not valid to subscribe to", x)
+                }
 
                 let guard = Notify::new();
                 guard.notified().await;
@@ -127,11 +141,15 @@ impl MessageBroker for RabbitMqMessageBroker{
     }
 }
 
-pub struct ProductAddedToCartEventHandler {}
+pub struct ProductAddedToCartEventHandler {
+    state: Mutex<Arc<AppState>>
+}
 
 impl ProductAddedToCartEventHandler {
-    pub fn new() -> Self{
-        ProductAddedToCartEventHandler{}
+    pub fn new(state: Mutex<Arc<AppState>>) -> Self{
+        ProductAddedToCartEventHandler{
+            state
+        }
     }
 }
 
@@ -139,12 +157,32 @@ impl ProductAddedToCartEventHandler {
 impl AsyncConsumer for ProductAddedToCartEventHandler {
     async fn consume(
         &mut self,
-        channel: &Channel,
-        deliver: Deliver,
-        basic_properties: BasicProperties,
+        _: &Channel,
+        _: Deliver,
+        _: BasicProperties,
         content: Vec<u8>,
     ){
-        let x = String::from_utf8(content).unwrap();
-        event!(Level::DEBUG, "Received event: {}", x);
+        let state_lock = self.state.lock().await;
+
+        let raw_event = String::from_utf8(content).unwrap();
+        event!(Level::DEBUG, "Received event: {}", raw_event);
+
+        match serde_json::from_str::<Event>(&raw_event) {
+            Ok(deserialized_event) => {
+                match deserialized_event {
+                    Event::ProductAddedToCartEvent { product_id } => {
+                        let decrement_product_inventory_command: DecrementProductInventoryCommand = DecrementProductInventoryCommand { 
+                            product_id: product_id
+                        };
+
+                        let _ = state_lock.decrement_product_inventory_command_handler.handle(&decrement_product_inventory_command).await;
+                    },
+                    _ => event!(Level::INFO, "Event not supported")
+                }
+            },
+            Err(e) => {
+                event!(Level::WARN, "Failed to deserialize event {}: {}", raw_event, e);
+            }
+        }
     }
 }
