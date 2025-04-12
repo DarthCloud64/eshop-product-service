@@ -7,9 +7,10 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex, Notify};
 use tracing::{event, Level};
 
-use crate::{cqrs::{CommandHandler, DecrementProductInventoryCommand, GetProductsQuery, QueryHandler}, dtos::GetProductsResponse, state::AppState};
+use crate::{cqrs::{CommandHandler, DecrementProductInventoryCommand, GetProductsQuery, IncrementProdcuctInventoryCommand, QueryHandler}, dtos::GetProductsResponse, state::AppState};
 
 pub static PRODUCT_ADDED_TO_CART_QUEUE_NAME: &str = "product.added.to.cart";
+pub static PRODUCT_REMOVED_FROM_CART_QUEUE_NAME: &str = "product.removed.from.cart";
 
 pub struct RabbitMqInitializationInfo{
     uri: String,
@@ -40,6 +41,9 @@ pub enum Event{
         id: String
     },
     ProductAddedToCartEvent {
+        product_id: String
+    },
+    ProductRemovedFromCartEvent {
         product_id: String
     }
 }
@@ -126,8 +130,11 @@ impl MessageBroker for RabbitMqMessageBroker{
 
                 match source_queue_name {
                     queue_name if queue_name == PRODUCT_ADDED_TO_CART_QUEUE_NAME => {
-                        channel.basic_consume(ProductAddedToCartEventHandler::new(Mutex::new(state)), consume_arguments).await.unwrap();
+                        channel.basic_consume(ProductAddedToCartEventHandler::new(Mutex::new(state.clone())), consume_arguments).await.unwrap();
                     },
+                    queue_name if queue_name == PRODUCT_REMOVED_FROM_CART_QUEUE_NAME => {
+                        channel.basic_consume(ProductRemoveFromCartEventHandler::new(Mutex::new(state.clone())), consume_arguments).await.unwrap();
+                    }
                     x => event!(Level::INFO, "event {} is not valid to subscribe to", x)
                 }
 
@@ -178,6 +185,52 @@ impl AsyncConsumer for ProductAddedToCartEventHandler {
                         let _ = state_lock.decrement_product_inventory_command_handler.handle(&decrement_product_inventory_command).await;
                     },
                     _ => event!(Level::INFO, "Event not supported")
+                }
+            },
+            Err(e) => {
+                event!(Level::WARN, "Failed to deserialize event {}: {}", raw_event, e);
+            }
+        }
+    }
+}
+
+pub struct ProductRemoveFromCartEventHandler {
+    state: Mutex<Arc<AppState>>
+}
+
+impl ProductRemoveFromCartEventHandler {
+    pub fn new(state: Mutex<Arc<AppState>>) -> Self {
+        ProductRemoveFromCartEventHandler { 
+            state: state
+        }
+    }
+}
+
+#[async_trait]
+impl AsyncConsumer for ProductRemoveFromCartEventHandler {
+    async fn consume(
+        &mut self,
+        _: &Channel,
+        _: Deliver,
+        _: BasicProperties,
+        content: Vec<u8>,
+    ){
+        let state_lock = self.state.lock().await;
+
+        let raw_event = String::from_utf8(content).unwrap();
+        event!(Level::DEBUG, "Received event: {}", raw_event);
+
+        match serde_json::from_str::<Event>(&raw_event) {
+            Ok(deserialized_event) => {
+                match deserialized_event {
+                    Event::ProductRemovedFromCartEvent {product_id} => {
+                        let increment_product_inventory_command = IncrementProdcuctInventoryCommand {
+                            product_id: product_id
+                        };
+        
+                        let _ = state_lock.increment_product_inventory_command_handler.handle(&increment_product_inventory_command).await.unwrap();
+                    },
+                    _ => event!(Level::INFO, "event not supported")
                 }
             },
             Err(e) => {

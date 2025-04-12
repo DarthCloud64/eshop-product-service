@@ -13,7 +13,7 @@ mod metrics;
 use std::sync::Arc;
 use axum::{middleware::from_fn_with_state, routing::{get, post, put}, Router};
 use axum_prometheus::PrometheusMetricLayer;
-use cqrs::{CreateProductCommandHandler, DecrementProductInventoryCommandHandler, GetProductsQueryHandler, ModifyProductInventoryCommandHandler};
+use cqrs::{CreateProductCommandHandler, DecrementProductInventoryCommandHandler, GetProductsQueryHandler, IncrementProdcuctInventoryCommandHandler, ModifyProductInventoryCommandHandler};
 use events::{MessageBroker, RabbitMqInitializationInfo, RabbitMqMessageBroker};
 use repositories::{MongoDbInitializationInfo, MongoDbProductRepository};
 use routes::*;
@@ -43,12 +43,14 @@ async fn main() {
     let get_products_query_handler = Arc::new(GetProductsQueryHandler::new(uow.clone()));
     let modify_product_inventory_command_handler = Arc::new(ModifyProductInventoryCommandHandler::new(uow.clone()));
     let decrement_product_inventory_command_handler = Arc::new(DecrementProductInventoryCommandHandler::new(uow.clone()));
+    let increment_product_inventory_command_handler = Arc::new(IncrementProdcuctInventoryCommandHandler::new(uow.clone()));
 
     let state = Arc::new(AppState{
         create_product_command_handler: create_product_command_handler,
         get_products_query_handler: get_products_query_handler,
         modify_product_inventory_command_handler: modify_product_inventory_command_handler,
         decrement_product_inventory_command_handler: decrement_product_inventory_command_handler,
+        increment_product_inventory_command_handler: increment_product_inventory_command_handler,
         auth0_domain: String::from(env::var("AUTH0_DOMAIN").unwrap()),
         auth0_audience: String::from(env::var("AUTH0_AUDIENCE").unwrap()),
     });
@@ -70,9 +72,15 @@ async fn main() {
     let listener = tokio::net::TcpListener::bind(format!("0.0.0.0:{}", env::var("AXUM_PORT").unwrap())).await.unwrap();
 
     let state_clone_for_background_jobs = state.clone();
-
+    let message_broke_for_background_jobs = message_broker.clone();
     tokio::spawn(async move {
-        message_broker.consume(events::PRODUCT_ADDED_TO_CART_QUEUE_NAME, state_clone_for_background_jobs).await;
+        message_broke_for_background_jobs.consume(events::PRODUCT_ADDED_TO_CART_QUEUE_NAME, state_clone_for_background_jobs).await;
+    });
+
+    let state_clone_2 = state.clone();
+    let message_broker_clone_2 = message_broker.clone();
+    tokio::spawn(async move {
+        message_broker_clone_2.consume(events::PRODUCT_REMOVED_FROM_CART_QUEUE_NAME, state_clone_2).await;
     });
 
     axum::serve(listener, Router::new()
