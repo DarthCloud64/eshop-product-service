@@ -28,7 +28,11 @@ impl<T1: ProductRepository, T2: MessageBroker> RepositoryContext<T1, T2> {
         lock.insert(id.clone(), product.clone());
 
         let mut lock = self.events_to_publish.lock().await;
-        lock.push(Event::ProductCreatedEvent { id: product.id.clone() });
+        lock.push(Event::ProductCreatedEvent { 
+            id: product.id.clone(), 
+            name: product.name.clone(),
+            price: product.price
+        });
 
         self.product_repository.create(id, product).await
     }

@@ -38,7 +38,9 @@ impl RabbitMqInitializationInfo {
 #[derive(Serialize, Deserialize)]
 pub enum Event{
     ProductCreatedEvent{
-        id: String
+        id: String,
+        name: String,
+        price: f32
     },
     ProductAddedToCartEvent {
         product_id: String
