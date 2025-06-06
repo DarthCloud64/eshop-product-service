@@ -1,70 +1,77 @@
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use tracing::{event, Level};
 
-use crate::{domain::Product, dtos::{CreateProductResponse, EmptyResponse, GetProductsResponse, ProductResponse, Response}, events::MessageBroker, repositories::ProductRepository, uow::RepositoryContext};
+use crate::uow::{ProductUnitOfWork, UnitOfWork};
+use crate::{
+    domain::Product,
+    dtos::{CreateProductResponse, EmptyResponse, GetProductsResponse, ProductResponse, Response},
+};
 
 // traits
-pub trait Command{}
-pub trait Query{}
+pub trait Command {}
+pub trait Query {}
 
-pub trait CommandHandler<C: Command, R: Response>{
+#[async_trait]
+pub trait CommandHandler<C: Command, R: Response> {
     async fn handle(&self, input: &C) -> Result<R, String>;
 }
 
-pub trait QueryHandler<Q: Query, R: Response>{
+#[async_trait]
+pub trait QueryHandler<Q: Query, R: Response> {
     async fn handle(&self, input: Option<Q>) -> Result<R, String>;
 }
 
 // commands
 #[derive(Serialize, Deserialize)]
-pub struct CreateProductCommand{
+pub struct CreateProductCommand {
     pub name: String,
     pub price: f32,
     pub description: String,
 }
-impl Command for CreateProductCommand{}
+impl Command for CreateProductCommand {}
 
 #[derive(Serialize, Deserialize)]
-pub struct ModifyProductInventoryCommand{
+pub struct ModifyProductInventoryCommand {
     pub product_id: String,
-    pub new_inventory: u32
+    pub new_inventory: u32,
 }
-impl Command for ModifyProductInventoryCommand{}
+impl Command for ModifyProductInventoryCommand {}
 
 #[derive(Serialize, Deserialize)]
-pub struct DecrementProductInventoryCommand{
+pub struct DecrementProductReservedInventoryCommand {
     pub product_id: String,
 }
-impl Command for DecrementProductInventoryCommand{}
+impl Command for DecrementProductReservedInventoryCommand {}
 
-pub struct IncrementProdcuctInventoryCommand {
-    pub product_id: String
+pub struct IncrementProdcuctReservedInventoryCommand {
+    pub product_id: String,
 }
-impl Command for IncrementProdcuctInventoryCommand{}
+impl Command for IncrementProdcuctReservedInventoryCommand {}
 
 // queries
-pub struct GetProductsQuery{
-    pub id: String
+pub struct GetProductsQuery {
+    pub id: String,
 }
-impl Query for GetProductsQuery{}
+impl Query for GetProductsQuery {}
 
 // command handlers
 #[derive(Clone)]
-pub struct CreateProductCommandHandler<T1: ProductRepository, T2: MessageBroker>{
-    uow: Arc<RepositoryContext<T1, T2>>
+pub struct CreateProductCommandHandler {
+    uow: Arc<ProductUnitOfWork>,
 }
 
-impl<T1: ProductRepository, T2: MessageBroker> CreateProductCommandHandler<T1, T2>{
-    pub fn new(uow: Arc<RepositoryContext<T1, T2>>) -> Self{
-        CreateProductCommandHandler{
-            uow: uow
-        }
+impl CreateProductCommandHandler {
+    pub fn new(uow: Arc<ProductUnitOfWork>) -> Self {
+        CreateProductCommandHandler { uow: uow }
     }
 }
 
-impl<T1: ProductRepository, T2: MessageBroker> CommandHandler<CreateProductCommand, CreateProductResponse> for CreateProductCommandHandler<T1, T2>{
+#[async_trait]
+impl CommandHandler<CreateProductCommand, CreateProductResponse> for CreateProductCommandHandler {
     async fn handle(&self, input: &CreateProductCommand) -> Result<CreateProductResponse, String> {
         if input.price <= 0.0 {
             return Err(String::from("Price cannot be 0 or negative!!!"));
@@ -78,30 +85,44 @@ impl<T1: ProductRepository, T2: MessageBroker> CommandHandler<CreateProductComma
             return Err(String::from("Description cannot be empty!!!"));
         }
 
-        let domain_product = Product{
+        let since_the_epoch = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("oops")
+            .as_millis();
+
+        let domain_product = Product {
             id: uuid::Uuid::new_v4().to_string(),
             name: input.name.clone(),
             description: input.description.clone(),
             price: input.price,
-            inventory: 0,
+            available_inventory: 0,
+            reserved_inventory: 0,
             stars: 0,
-            number_of_reviews: 0
+            number_of_reviews: 0,
+            created_at_utc: since_the_epoch as i64,
+            updated_at_utc: since_the_epoch as i64,
+            version: 0,
         };
 
-        match self.uow.add_product(domain_product.id.clone(), domain_product).await{
-            Ok(created_product) => {
-                match self.uow.commit().await {
-                    Ok(()) => Ok(CreateProductResponse {
-                        id: created_product.id.clone()
-                    }),
-                    Err(e) => {
-                        event!(Level::WARN, "Error occurred while adding product: {}", e);
-                        Err(e)
-                    }
+        let product_repository = self.uow.get_product_repository().await;
+        let session = self.uow.begin_transaction().await;
+
+        match product_repository
+            .create(domain_product.id.clone(), domain_product, session)
+            .await
+        {
+            Ok(created_product) => match self.uow.commit().await {
+                Ok(()) => Ok(CreateProductResponse {
+                    id: created_product.id.clone(),
+                }),
+                Err(e) => {
+                    event!(Level::WARN, "Error occurred while adding product: {}", e);
+                    Err(e)
                 }
             },
             Err(e) => {
                 event!(Level::WARN, "Error occurred while adding product: {}", e);
+                self.uow.rollback().await.unwrap();
                 Err(e)
             }
         }
@@ -110,177 +131,224 @@ impl<T1: ProductRepository, T2: MessageBroker> CommandHandler<CreateProductComma
 
 // query handlers
 #[derive(Clone)]
-pub struct GetProductsQueryHandler<T1: ProductRepository, T2: MessageBroker>{
-    uow: Arc<RepositoryContext<T1, T2>>
+pub struct GetProductsQueryHandler {
+    uow: Arc<ProductUnitOfWork>,
 }
 
-impl<T1: ProductRepository, T2: MessageBroker> GetProductsQueryHandler<T1, T2>{
-    pub fn new(uow: Arc<RepositoryContext<T1, T2>>) -> Self {
-        GetProductsQueryHandler{
-            uow: uow
-        }
+impl GetProductsQueryHandler {
+    pub fn new(uow: Arc<ProductUnitOfWork>) -> Self {
+        GetProductsQueryHandler { uow: uow }
     }
 }
 
-impl<T1: ProductRepository, T2: MessageBroker> QueryHandler<GetProductsQuery, GetProductsResponse> for GetProductsQueryHandler<T1, T2>{
-    async fn handle(&self, input_option: Option<GetProductsQuery>) -> Result<GetProductsResponse, String> {    
+#[async_trait]
+impl QueryHandler<GetProductsQuery, GetProductsResponse> for GetProductsQueryHandler {
+    async fn handle(
+        &self,
+        input_option: Option<GetProductsQuery>,
+    ) -> Result<GetProductsResponse, String> {
+        let product_repository = self.uow.get_product_repository().await;
         match input_option {
-            Some(input) => {
-                match self.uow.product_repository.read(input.id.as_str()).await{
-                    Ok(domain_product) => {
-                        let mut products = Vec::new();
-        
-                        products.push(ProductResponse{
+            Some(input) => match product_repository.read(input.id.as_str()).await {
+                Ok(domain_product) => {
+                    let mut products = Vec::new();
+
+                    products.push(ProductResponse {
+                        id: domain_product.id.clone(),
+                        name: domain_product.name.clone(),
+                        price: domain_product.price,
+                        description: domain_product.description.clone(),
+                        available_inventory: domain_product.available_inventory,
+                        reserved_inventory: domain_product.reserved_inventory,
+                        stars: domain_product.stars,
+                        number_of_reviews: domain_product.number_of_reviews,
+                    });
+
+                    Ok(GetProductsResponse { products: products })
+                }
+                Err(e) => {
+                    event!(Level::WARN, "Error occurred while adding product: {}", e);
+                    Err(e)
+                }
+            },
+            None => match product_repository.read_all().await {
+                Ok(domain_products) => {
+                    let mut products = Vec::new();
+
+                    for domain_product in domain_products {
+                        products.push(ProductResponse {
                             id: domain_product.id.clone(),
                             name: domain_product.name.clone(),
                             price: domain_product.price,
                             description: domain_product.description.clone(),
-                            inventory: domain_product.inventory,
+                            available_inventory: domain_product.available_inventory,
+                            reserved_inventory: domain_product.reserved_inventory,
                             stars: domain_product.stars,
-                            number_of_reviews: domain_product.number_of_reviews
+                            number_of_reviews: domain_product.number_of_reviews,
                         });
-        
-                        Ok(GetProductsResponse{
-                            products: products
-                        })
-                    },
-                    Err(e) => {
-                        event!(Level::WARN, "Error occurred while adding product: {}", e);
-                        Err(e)
                     }
+
+                    Ok(GetProductsResponse { products: products })
+                }
+                Err(e) => {
+                    event!(Level::WARN, "Error occurred while adding product: {}", e);
+                    Err(e)
                 }
             },
-            None => {
-                match self.uow.product_repository.read_all().await{
-                    Ok(domain_products) => {
-                        let mut products = Vec::new();
-
-                        for domain_product in domain_products {
-                            products.push(ProductResponse{
-                                id: domain_product.id.clone(),
-                                name: domain_product.name.clone(),
-                                price: domain_product.price,
-                                description: domain_product.description.clone(),
-                                inventory: domain_product.inventory,
-                                stars: domain_product.stars,
-                                number_of_reviews: domain_product.number_of_reviews
-                            });
-                        }
-                        
-                        Ok(GetProductsResponse{
-                            products: products
-                        })
-                    },
-                    Err(e) => {
-                        event!(Level::WARN, "Error occurred while adding product: {}", e);
-                        Err(e)
-                    }
-                }
-            }
         }
     }
 }
 
-pub struct ModifyProductInventoryCommandHandler<T1: ProductRepository, T2: MessageBroker>{
-    uow: Arc<RepositoryContext<T1, T2>>
+pub struct ModifyProductInventoryCommandHandler {
+    uow: Arc<ProductUnitOfWork>,
 }
 
-impl <T1: ProductRepository, T2: MessageBroker> ModifyProductInventoryCommandHandler<T1, T2>{
-    pub fn new(uow: Arc<RepositoryContext<T1, T2>>) -> Self {
-        ModifyProductInventoryCommandHandler {
-            uow: uow
-        }
+impl ModifyProductInventoryCommandHandler {
+    pub fn new(uow: Arc<ProductUnitOfWork>) -> Self {
+        ModifyProductInventoryCommandHandler { uow: uow }
     }
 }
 
-impl <T1: ProductRepository, T2: MessageBroker> CommandHandler<ModifyProductInventoryCommand, EmptyResponse> for ModifyProductInventoryCommandHandler<T1, T2>{
+#[async_trait]
+impl CommandHandler<ModifyProductInventoryCommand, EmptyResponse>
+    for ModifyProductInventoryCommandHandler
+{
     async fn handle(&self, input: &ModifyProductInventoryCommand) -> Result<EmptyResponse, String> {
-        match self.uow.product_repository.read(&input.product_id).await {
-            Ok(mut found_product) => {
-                found_product.inventory = input.new_inventory;
+        let product_repository = self.uow.get_product_repository().await;
 
-                match self.uow.product_repository.update(input.product_id.clone(), found_product).await{
+        match product_repository.read(&input.product_id).await {
+            Ok(mut found_product) => {
+                found_product.available_inventory = input.new_inventory;
+
+                let session = self.uow.begin_transaction().await;
+
+                match product_repository
+                    .update(input.product_id.clone(), found_product, session)
+                    .await
+                {
                     Ok(_) => {
-                        Ok(EmptyResponse{})
-                    },
+                        self.uow.commit().await.unwrap();
+                        Ok(EmptyResponse {})
+                    }
                     Err(e) => {
-                        Err(format!("Error occurred while modifying product inventory for product {}: {}", &input.product_id, e))
+                        self.uow.rollback().await.unwrap();
+                        Err(format!(
+                            "Error occurred while modifying product inventory for product {}: {}",
+                            &input.product_id, e
+                        ))
                     }
                 }
-            },
-            Err(e) => {
-                Err(format!("Error occurred while modifying product inventory for product {}: {}", &input.product_id, e))
             }
+            Err(e) => Err(format!(
+                "Error occurred while modifying product inventory for product {}: {}",
+                &input.product_id, e
+            )),
         }
     }
 }
 
-pub struct DecrementProductInventoryCommandHandler<T1: ProductRepository, T2: MessageBroker>{
-    uow: Arc<RepositoryContext<T1, T2>>
+pub struct DecrementProductInventoryCommandHandler {
+    uow: Arc<ProductUnitOfWork>,
 }
 
-impl <T1: ProductRepository, T2: MessageBroker> DecrementProductInventoryCommandHandler<T1, T2>{
-    pub fn new(uow: Arc<RepositoryContext<T1, T2>>) -> Self {
-        DecrementProductInventoryCommandHandler { 
-            uow: uow
-        }
+impl DecrementProductInventoryCommandHandler {
+    pub fn new(uow: Arc<ProductUnitOfWork>) -> Self {
+        DecrementProductInventoryCommandHandler { uow: uow }
     }
 }
 
-impl <T1: ProductRepository, T2: MessageBroker> CommandHandler<DecrementProductInventoryCommand, EmptyResponse> for DecrementProductInventoryCommandHandler<T1, T2>{
-    async fn handle(&self, input: &DecrementProductInventoryCommand) -> Result<EmptyResponse, String> {
-        match self.uow.product_repository.read(&input.product_id.as_str()).await{
+#[async_trait]
+impl CommandHandler<DecrementProductReservedInventoryCommand, EmptyResponse>
+    for DecrementProductInventoryCommandHandler
+{
+    async fn handle(
+        &self,
+        input: &DecrementProductReservedInventoryCommand,
+    ) -> Result<EmptyResponse, String> {
+        let product_repository = self.uow.get_product_repository().await;
+
+        match product_repository.read(&input.product_id.as_str()).await {
             Ok(mut domain_product) => {
-                domain_product.inventory = domain_product.inventory - 1;
+                domain_product.reserved_inventory = domain_product.reserved_inventory - 1;
 
-                match self.uow.product_repository.update(domain_product.id.clone(), domain_product).await{
+                let session = self.uow.begin_transaction().await;
+
+                match product_repository
+                    .update(domain_product.id.clone(), domain_product, session)
+                    .await
+                {
                     Ok(_) => {
-                        Ok(EmptyResponse{})
-                    },
+                        self.uow.commit().await.unwrap();
+                        Ok(EmptyResponse {})
+                    }
                     Err(e) => {
+                        self.uow.rollback().await.unwrap();
                         event!(Level::WARN, "Error occurred while updating product while decrementing inventory for product {}: {}", input.product_id, e);
                         Err(e)
                     }
                 }
-            },
+            }
             Err(e) => {
-                event!(Level::WARN, "Error occurred while decrementing product inventory for product {}: {}", input.product_id, e);
+                event!(
+                    Level::WARN,
+                    "Error occurred while decrementing product inventory for product {}: {}",
+                    input.product_id,
+                    e
+                );
                 Err(e)
             }
         }
     }
 }
 
-pub struct IncrementProdcuctInventoryCommandHandler<T1: ProductRepository, T2: MessageBroker>{
-    uow: Arc<RepositoryContext<T1, T2>>,
+pub struct IncrementProdcuctInventoryCommandHandler {
+    uow: Arc<ProductUnitOfWork>,
 }
 
-impl<T1: ProductRepository, T2: MessageBroker> IncrementProdcuctInventoryCommandHandler<T1, T2>{
-    pub fn new(uow: Arc<RepositoryContext<T1, T2>>) -> Self {
-        IncrementProdcuctInventoryCommandHandler { 
-            uow: uow,
-        }
+impl IncrementProdcuctInventoryCommandHandler {
+    pub fn new(uow: Arc<ProductUnitOfWork>) -> Self {
+        IncrementProdcuctInventoryCommandHandler { uow: uow }
     }
 }
 
-impl<T1: ProductRepository, T2: MessageBroker> CommandHandler<IncrementProdcuctInventoryCommand, EmptyResponse> for IncrementProdcuctInventoryCommandHandler<T1, T2>{
-    async fn handle(&self, input: &IncrementProdcuctInventoryCommand) -> Result<EmptyResponse, String> {
-        match self.uow.product_repository.read(&input.product_id.as_str()).await {
-            Ok(mut domain_product) => {
-                domain_product.inventory = domain_product.inventory + 1;
+#[async_trait]
+impl CommandHandler<IncrementProdcuctReservedInventoryCommand, EmptyResponse>
+    for IncrementProdcuctInventoryCommandHandler
+{
+    async fn handle(
+        &self,
+        input: &IncrementProdcuctReservedInventoryCommand,
+    ) -> Result<EmptyResponse, String> {
+        let product_repository = self.uow.get_product_repository().await;
 
-                match self.uow.product_repository.update(domain_product.id.clone(), domain_product).await {
+        match product_repository.read(&input.product_id.as_str()).await {
+            Ok(mut domain_product) => {
+                domain_product.reserved_inventory = domain_product.reserved_inventory + 1;
+
+                let session = self.uow.begin_transaction().await;
+
+                match product_repository
+                    .update(domain_product.id.clone(), domain_product, session)
+                    .await
+                {
                     Ok(_) => {
-                        Ok(EmptyResponse{})
-                    },
+                        self.uow.commit().await.unwrap();
+                        Ok(EmptyResponse {})
+                    }
                     Err(e) => {
+                        self.uow.rollback().await.unwrap();
                         event!(Level::WARN, "Error occurred while updating product while incrementing inventory for product {}: {}", input.product_id, e);
                         Err(e)
                     }
                 }
-            },
+            }
             Err(e) => {
-                event!(Level::WARN, "Error occurred while incrementing product inventory for product {}: {}", input.product_id, e);
+                event!(
+                    Level::WARN,
+                    "Error occurred while incrementing product inventory for product {}: {}",
+                    input.product_id,
+                    e
+                );
                 Err(e)
             }
         }
