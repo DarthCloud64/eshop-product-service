@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mockall::automock;
 use mongodb::ClientSession;
 use tokio::sync::Mutex;
 use tracing::{event, Level};
@@ -11,9 +12,10 @@ use crate::{
 };
 
 #[async_trait]
+#[automock]
 pub trait UnitOfWork {
     async fn get_product_repository(&self) -> Arc<dyn ProductRepository + Send + Sync>;
-    async fn begin_transaction(&self) -> Arc<Mutex<ClientSession>>;
+    async fn begin_transaction(&self) -> Arc<tokio::sync::Mutex<ClientSession>>;
     async fn commit(&self) -> Result<(), String>;
     async fn rollback(&self) -> Result<(), String>;
 }

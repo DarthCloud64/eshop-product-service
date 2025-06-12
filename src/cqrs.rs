@@ -61,11 +61,11 @@ impl Query for GetProductsQuery {}
 // command handlers
 #[derive(Clone)]
 pub struct CreateProductCommandHandler {
-    uow: Arc<ProductUnitOfWork>,
+    uow: Arc<dyn UnitOfWork + Send + Sync>,
 }
 
 impl CreateProductCommandHandler {
-    pub fn new(uow: Arc<ProductUnitOfWork>) -> Self {
+    pub fn new(uow: Arc<dyn UnitOfWork + Send + Sync>) -> Self {
         CreateProductCommandHandler { uow: uow }
     }
 }
@@ -132,11 +132,11 @@ impl CommandHandler<CreateProductCommand, CreateProductResponse> for CreateProdu
 // query handlers
 #[derive(Clone)]
 pub struct GetProductsQueryHandler {
-    uow: Arc<ProductUnitOfWork>,
+    uow: Arc<dyn UnitOfWork + Send + Sync>,
 }
 
 impl GetProductsQueryHandler {
-    pub fn new(uow: Arc<ProductUnitOfWork>) -> Self {
+    pub fn new(uow: Arc<dyn UnitOfWork + Send + Sync>) -> Self {
         GetProductsQueryHandler { uow: uow }
     }
 }
@@ -200,11 +200,11 @@ impl QueryHandler<GetProductsQuery, GetProductsResponse> for GetProductsQueryHan
 }
 
 pub struct ModifyProductInventoryCommandHandler {
-    uow: Arc<ProductUnitOfWork>,
+    uow: Arc<dyn UnitOfWork + Send + Sync>,
 }
 
 impl ModifyProductInventoryCommandHandler {
-    pub fn new(uow: Arc<ProductUnitOfWork>) -> Self {
+    pub fn new(uow: Arc<dyn UnitOfWork + Send + Sync>) -> Self {
         ModifyProductInventoryCommandHandler { uow: uow }
     }
 }
@@ -248,11 +248,11 @@ impl CommandHandler<ModifyProductInventoryCommand, EmptyResponse>
 }
 
 pub struct DecrementProductInventoryCommandHandler {
-    uow: Arc<ProductUnitOfWork>,
+    uow: Arc<dyn UnitOfWork + Send + Sync>,
 }
 
 impl DecrementProductInventoryCommandHandler {
-    pub fn new(uow: Arc<ProductUnitOfWork>) -> Self {
+    pub fn new(uow: Arc<dyn UnitOfWork + Send + Sync>) -> Self {
         DecrementProductInventoryCommandHandler { uow: uow }
     }
 }
@@ -302,11 +302,11 @@ impl CommandHandler<DecrementProductReservedInventoryCommand, EmptyResponse>
 }
 
 pub struct IncrementProdcuctInventoryCommandHandler {
-    uow: Arc<ProductUnitOfWork>,
+    uow: Arc<dyn UnitOfWork + Send + Sync>,
 }
 
 impl IncrementProdcuctInventoryCommandHandler {
-    pub fn new(uow: Arc<ProductUnitOfWork>) -> Self {
+    pub fn new(uow: Arc<dyn UnitOfWork + Send + Sync>) -> Self {
         IncrementProdcuctInventoryCommandHandler { uow: uow }
     }
 }
@@ -352,5 +352,31 @@ impl CommandHandler<IncrementProdcuctReservedInventoryCommand, EmptyResponse>
                 Err(e)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::uow::MockUnitOfWork;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn create_product_command_handler_returns_err_when_price_is_negative() {
+        // Arrange
+        let create_product_command: CreateProductCommand = CreateProductCommand {
+            name: String::from("laptop"),
+            price: -1.0,
+            description: String::from("desc"),
+        };
+
+        let handler: CreateProductCommandHandler =
+            CreateProductCommandHandler::new(Arc::new(MockUnitOfWork::new()));
+
+        // Act
+        let result = handler.handle(&create_product_command).await;
+
+        // Assert
+        assert!(result.is_err())
     }
 }
